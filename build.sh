@@ -24,26 +24,15 @@ if [ x = x$DOCKER_USER ]; then
 	exit 1
 fi
 
-# Build Frontend
-if [ xfrontend = x$1 ]; then
-    cd html
-    grunt
-    if [ $? -ne 0 ]; then
-        echo "ERROR building fronted"
-        exit 1
-    fi
-    cd .. 
-fi
-
-# Build Backend
-docker build -t $DOCKER_USER/edge-anki-adas .
+# Build Beat
+docker build -t $DOCKER_USER/edge-anki-beat .
 if [ $? -ne 0 ]; then
-    echo "ERROR building backend"
+    echo "ERROR building beat"
     exit 1
 fi
 
 # Push image
-docker push $DOCKER_USER/edge-anki-adas
+docker push $DOCKER_USER/edge-anki-beat
 if [ $? -ne 0 ]; then
     echo "ERROR pushing image"
     exit 1
