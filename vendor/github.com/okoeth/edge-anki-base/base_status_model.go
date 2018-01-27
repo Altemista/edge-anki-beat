@@ -22,6 +22,8 @@ package anki
 import (
 	"fmt"
 	"time"
+	"strings"
+	"strconv"
 )
 
 type (
@@ -35,7 +37,7 @@ type (
 		CarSpeed            int         `json:"carSpeed"`
 		CarVersion          int         `json:"carVersion"`
 		CarBatteryLevel     int         `json:"carBatteryLevel"`
-		LaneOffset          float32     `json:"laneOffset"`
+		LaneOffset          int     	`json:"laneOffset"`
 		LaneNo              int         `json:"laneNo"`
 		LaneLength          int         `json:"laneLength"`
 		LaneTimestamp       time.Time   `json:"laneTimestamp"`
@@ -46,6 +48,7 @@ type (
 		PosOptions          []PosOption `json:"posOptions"`
 		MaxTileNo           int         `json:"maxTileNo"`
 		TransitionTimestamp time.Time
+		LightsOn			bool
 	}
 	// PosOption lists an option for a position
 	PosOption struct {
@@ -61,6 +64,8 @@ func (s Status) Identify() string {
 
 // MergeStatusUpdate updates fields as per message type 2
 func (s *Status) MergeStatusUpdate(u Status) {
+	defer Track_execution_time(Start_execution_time("MergeStatusUpdate"))
+
 	if u.MsgID == 23 {
 		// No update, just a ping
 	} else if u.MsgID == 25 {
@@ -73,6 +78,7 @@ func (s *Status) MergeStatusUpdate(u Status) {
 		s.MsgTimestamp = u.MsgTimestamp
 	} else if u.MsgID == 39 {
 		// Position update
+		s.CarID = u.CarID
 		s.CarSpeed = u.CarSpeed
 		s.LaneOffset = u.LaneOffset
 		s.LaneNo = u.LaneNo
@@ -83,24 +89,9 @@ func (s *Status) MergeStatusUpdate(u Status) {
 		s.PosTimestamp = u.MsgTimestamp
 		s.MsgTimestamp = u.MsgTimestamp
 		s.MaxTileNo = u.MaxTileNo
+		s.findTileNo(u)
 	} else if u.MsgID == 41 {
 		// Transition update
-		/*s.LaneOffset = u.LaneOffset
-		s.LaneNo = u.LaneNo
-		s.LaneLength = u.LaneLength
-		/*
-				s.PosTileType = u.PosTileType
-				s.PosTileNo = u.PosTileNo
-				s.PosLocation = u.PosLocation
-				s.PosOptions = u.PosOptions
-				s.PosTimestamp = u.MsgTimestamp
-			s.findTileNo(u)
-		*/
-		/*s.LaneTimestamp = u.MsgTimestamp
-		s.MsgTimestamp = u.MsgTimestamp
-		s.TransitionTimestamp = u.MsgTimestamp
-		s.MaxTileNo = u.MaxTileNo*/
-
 		s.CarSpeed = u.CarSpeed
 		s.LaneOffset = u.LaneOffset
 		s.LaneNo = u.LaneNo
@@ -137,4 +128,71 @@ func (s *Status) findTileNo(u Status) {
 		}
 	}
 	s.PosTileNo = bestTileNo
+}
+
+func parseCSV(csv string) (Status, error) {
+	defer Track_execution_time(Start_execution_time("parseCSV"))
+
+	status := Status{}
+	var err error
+
+	splits := strings.Split(csv, ";")
+	status.MsgID, err = strconv.Atoi(splits[0])
+	if err != nil {
+		return status, err
+	}
+
+	status.MsgTimestamp, err = time.Parse(time.RFC3339, splits[1])
+	if err != nil {
+		return status, err
+	}
+
+	status.CarNo, err = strconv.Atoi(splits[2])
+	if err != nil {
+		return status, err
+	}
+
+	status.PosLocation, err = strconv.Atoi(splits[3])
+	if err != nil {
+		return status, err
+	}
+
+	status.PosTileNo, err = strconv.Atoi(splits[4])
+	if err != nil {
+		return status, err
+	}
+
+	status.CarSpeed, err = strconv.Atoi(splits[5])
+	if err != nil {
+		return status, err
+	}
+
+	status.LaneNo, err = strconv.Atoi(splits[6])
+	status.LaneLength, err = strconv.Atoi(splits[7])
+	status.MaxTileNo, err = strconv.Atoi(splits[8])
+
+	posOpts := strings.Split(splits[9], ":")
+
+	for _, posOptString := range posOpts {
+		posOptSplit := strings.Split(posOptString, ",")
+		if(len(posOptSplit) < 2) {
+			continue
+		}
+
+		posOpt := PosOption{ }
+
+		posOpt.OptProbability, err = strconv.Atoi(posOptSplit[0])
+		if err != nil {
+			continue
+		}
+
+		posOpt.OptTileNo, err = strconv.Atoi(posOptSplit[1])
+		if err != nil {
+			continue
+		}
+
+		status.PosOptions = append(status.PosOptions, posOpt)
+	}
+
+	return status, err
 }

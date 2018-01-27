@@ -24,12 +24,17 @@ import (
 	"os"
 	"strconv"
 	"time"
-
+	"net/http"
+	"bytes"
+	"goji.io"
+	"sync"
 	"github.com/Shopify/sarama"
 )
 
+var lock sync.Mutex
+
 // Variable plog is the logger for the package
-var plog = log.New(os.Stdout, "EDGE-ANKI-BASE: ", log.Lshortfile|log.LstdFlags)
+var plog = log.New(os.Stdout, "EDGE-ANKI-BASE: ", log.Lshortfile|log.LstdFlags|log.Lmicroseconds)
 
 // SetLogger sets-up the
 func SetLogger(l *log.Logger) {
@@ -49,7 +54,14 @@ func CreateTrack() []Status {
 
 // UpdateTrack merges a new status update in the track
 func UpdateTrack(track []Status, update Status) {
-	plog.Printf("INFO: Updating track from status update")
+	defer Track_execution_time(Start_execution_time("UpdateTrack"))
+
+	lockTime := time.Now()
+	lock.Lock()
+	defer lock.Unlock()
+	plog.Printf("INFO: ======= Waited at UpdateTrack lock for %f ms =======", time.Since(lockTime).Seconds()*1000)
+
+	plog.Printf("INFO: Updating track from status update with latency %f ms", time.Since(update.MsgTimestamp).Seconds()*1000)
 	if update.CarNo == 0 {
 		track[0].MergeStatusUpdate(update)
 	} else if update.CarNo == 1 {
@@ -109,5 +121,65 @@ func sendCommand(p sarama.AsyncProducer, ch chan Command) {
 			Timestamp: time.Now(),
 		}
 
+	}
+}
+
+
+// CreateChannels Set-up of Communication (hiding all Kafka details behind Go Channels)
+func CreateHttpChannels(uc string, mux* goji.Mux, track* []Status) (chan Command, chan Status, error) {
+	// Producer
+	cmdCh := make(chan Command)
+	go sendHttpCommand(cmdCh)
+
+	// Consumer
+	statusCh := make(chan Status)
+	if uc == "edge.adas" {
+		err := CreateAdasHttpConsumer(statusCh, mux, track)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		err := CreateHttpConsumer(statusCh, mux, track)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return cmdCh, statusCh, nil
+}
+
+func sendHttpCommand(ch chan Command) {
+	var cmd Command
+	for {
+		plog.Printf("INFO: Waiting for command at %v", time.Now())
+		cmd = <-ch
+		plog.Printf("INFO: Received command")
+		cmdstr, err := cmd.ControllerString()
+
+		carServer := os.Getenv("CAR_HTTP_SERVER")
+		if carServer == "" {
+			plog.Printf("INFO: Using localhost as default CAR_HTTP_SERVER.")
+			carServer = "localhost"
+		} else {
+			plog.Printf("INFO: Using " + carServer + " as CAR_HTTP_SERVER.")
+		}
+		requestUrl := "http://" + carServer + ":809" + strconv.Itoa(cmd.CarNo) + "/cmd"
+
+		plog.Printf("INFO: Sending command %s to address %s", cmdstr, "Command" + requestUrl)
+		if err != nil {
+			plog.Println("WARNING: Ignoring command due to decoding error")
+			continue
+		}
+
+		var netClient = &http.Client{
+			Timeout: time.Second * 10,
+		}
+		response, err := netClient.Post(requestUrl, "text/plain", bytes.NewBuffer([]byte(cmdstr)))
+		if err != nil {
+			plog.Println("WARNING: Could not send command")
+		}
+
+		if response != nil {
+			defer response.Body.Close()
+		}
 	}
 }

@@ -39,8 +39,9 @@ func init() {
 }
 
 func main() {
+	mux := goji.NewMux()
 	// Set-up channels for status and commands
-	cmdCh, statusCh, err := anki.CreateChannels("edge.beat")
+	cmdCh, statusCh, err := anki.CreateHttpChannels("edge.beat", mux, nil)
 	if err != nil {
 		mlog.Fatalln("FATAL: Could not establish channels: %s", err)
 	}
@@ -49,11 +50,11 @@ func main() {
 	go receiveStatus(cmdCh, statusCh)
 
 	// Set-up routes
-	mux := goji.NewMux()
+
 	tc := NewBeatController(cmdCh)
 	tc.AddHandlers(mux)
 	mux.Handle(pat.Get("/html/*"), http.FileServer(http.Dir("html/dist/")))
 	corsHandler := cors.Default().Handler(mux)
 	mlog.Println("INFO: System is ready.")
-	http.ListenAndServe("0.0.0.0:8003", corsHandler)
+	http.ListenAndServe("0.0.0.0:8004", corsHandler)
 }

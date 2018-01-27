@@ -5,18 +5,29 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"os"
 )
+
 
 // Identifier returns a string which identifies the object
 type Identifier interface {
 	Identify() string
 }
 
-// ElasticsearchURL is where to find elastic
-var ElasticsearchURL = "http://edge-elastic:9200"
+func getElasticsearchUrl() string {
+	// ElasticsearchURL is where to find elastic
+	var elasticsearchURL= os.Getenv("ELASTIC_URL")
+	if elasticsearchURL == "" {
+		mlog.Printf("INFO: Using http://localhost:9200 as default ELASTIC_URL.")
+		elasticsearchURL = "http://localhost:9200"
+	} else {
+		mlog.Printf("INFO: Using " + elasticsearchURL + " as ELASTIC_URL.")
+	}
+	return elasticsearchURL
+}
 
 func writeBulk(bulk, indx, typ string) (*http.Response, error) {
-	url := fmt.Sprintf("%s/%s/%s/_bulk", ElasticsearchURL, indx, typ)
+	url := fmt.Sprintf("%s/%s/%s/_bulk", getElasticsearchUrl(), indx, typ)
 	req, err := http.NewRequest("POST", url, strings.NewReader(bulk))
 	req.Header.Add("Content-Type", "application/octet-stream")
 	if err != nil {
